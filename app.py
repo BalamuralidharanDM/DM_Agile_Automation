@@ -269,6 +269,66 @@ def apply_app_style():
             margin-top: 6px;
             margin-bottom: 14px;
         }
+
+        html {
+            scroll-behavior: smooth;
+        }
+        .app-top-anchor {
+            display: block;
+            position: relative;
+            top: -16px;
+            visibility: hidden;
+        }
+        .smooth-top-button {
+            position: fixed;
+            right: 28px;
+            bottom: 28px;
+            z-index: 999999;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #191D63 0%, #00D4FF 100%);
+            color: #FFFFFF !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none !important;
+            font-size: 1.35rem;
+            font-weight: 900;
+            box-shadow: 0 16px 34px rgba(25, 29, 99, 0.35);
+            border: 1px solid rgba(255,255,255,0.35);
+            transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.22s ease;
+        }
+        .smooth-top-button:hover {
+            transform: translateY(-5px) scale(1.04);
+            box-shadow: 0 22px 44px rgba(25, 29, 99, 0.48);
+            color: #FFFFFF !important;
+            text-decoration: none !important;
+        }
+        .smooth-top-button::after {
+            content: "Back To Top";
+            position: absolute;
+            right: 62px;
+            top: 10px;
+            background: #06172B;
+            color: #FFFFFF;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            padding: 8px 10px;
+            border-radius: 10px;
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(8px);
+            transition: opacity 0.22s ease, transform 0.22s ease;
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+        .smooth-top-button:hover::after {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
         @media (max-width: 1200px) {
             .kpi-grid { grid-template-columns: repeat(2, minmax(170px, 1fr)); }
             .hero-top { flex-direction: column; align-items: flex-start; }
@@ -1760,6 +1820,8 @@ def answer_ai_question(question: str, metrics: Dict[str, Any]) -> str:
 # ============================================================
 def main():
     apply_app_style()
+    st.markdown("<span id='app-top' class='app-top-anchor'></span>", unsafe_allow_html=True)
+    st.markdown("<a class='smooth-top-button' href='#app-top' title='Smoothly Scroll To Top'>↑</a>", unsafe_allow_html=True)
     init_filter_state()
 
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
