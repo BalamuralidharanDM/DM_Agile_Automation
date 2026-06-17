@@ -1,5 +1,6 @@
 import io
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional, List, Dict, Any
 
 import numpy as np
@@ -544,6 +545,147 @@ def clear_filters():
         st.session_state[k] = v
 
 
+# ============================================================
+# JIRA TEMPLATE DOWNLOAD
+# ============================================================
+JIRA_TEMPLATE_COLUMNS = [
+    "Key",
+    "Sprint",
+    "Type",
+    "Status",
+    "Assignee",
+    "Priority",
+    "Story Points",
+    "Days Open",
+    "Dependency",
+    "Created",
+    "Updated",
+    "Resolved",
+    "Blocked",
+    "Labels",
+]
+
+
+def build_jira_template_dataframe() -> pd.DataFrame:
+    """Create a Jira CSV template with example rows for Delivery Managers.
+
+    The application accepts these columns and also supports close variants such as
+    issue_type, story_points, assigned_to, blocked_by, created_date, etc. This
+    template uses user-friendly Jira export column names.
+    """
+    rows = [
+        {
+            "Key": "D365-101",
+            "Sprint": "Sprint 18",
+            "Type": "Story",
+            "Status": "Done",
+            "Assignee": "John",
+            "Priority": "High",
+            "Story Points": 8,
+            "Days Open": 4,
+            "Dependency": "",
+            "Created": "2026-06-01",
+            "Updated": "2026-06-05",
+            "Resolved": "2026-06-05",
+            "Blocked": "No",
+            "Labels": "frontend,release",
+        },
+        {
+            "Key": "D365-102",
+            "Sprint": "Sprint 18",
+            "Type": "Task",
+            "Status": "Blocked",
+            "Assignee": "Smith",
+            "Priority": "High",
+            "Story Points": 5,
+            "Days Open": 12,
+            "Dependency": "D365-160",
+            "Created": "2026-06-01",
+            "Updated": "2026-06-13",
+            "Resolved": "",
+            "Blocked": "Yes",
+            "Labels": "dependency,environment",
+        },
+        {
+            "Key": "D365-103",
+            "Sprint": "Sprint 18",
+            "Type": "Bug",
+            "Status": "Open",
+            "Assignee": "Ravi",
+            "Priority": "Medium",
+            "Story Points": 3,
+            "Days Open": 8,
+            "Dependency": "",
+            "Created": "2026-06-03",
+            "Updated": "2026-06-11",
+            "Resolved": "",
+            "Blocked": "No",
+            "Labels": "quality,defect",
+        },
+        {
+            "Key": "D365-104",
+            "Sprint": "Sprint 19",
+            "Type": "Story",
+            "Status": "In Progress",
+            "Assignee": "Maria",
+            "Priority": "Medium",
+            "Story Points": 13,
+            "Days Open": 6,
+            "Dependency": "D365-210",
+            "Created": "2026-06-07",
+            "Updated": "2026-06-13",
+            "Resolved": "",
+            "Blocked": "No",
+            "Labels": "integration",
+        },
+        {
+            "Key": "D365-105",
+            "Sprint": "Sprint 19",
+            "Type": "Task",
+            "Status": "Done",
+            "Assignee": "Lee",
+            "Priority": "Low",
+            "Story Points": 2,
+            "Days Open": 3,
+            "Dependency": "",
+            "Created": "2026-06-08",
+            "Updated": "2026-06-11",
+            "Resolved": "2026-06-11",
+            "Blocked": "No",
+            "Labels": "documentation",
+        },
+        {
+            "Key": "D365-106",
+            "Sprint": "Sprint 19",
+            "Type": "Bug",
+            "Status": "Blocked",
+            "Assignee": "John",
+            "Priority": "Critical",
+            "Story Points": 8,
+            "Days Open": 15,
+            "Dependency": "Vendor API",
+            "Created": "2026-06-02",
+            "Updated": "2026-06-17",
+            "Resolved": "",
+            "Blocked": "Yes",
+            "Labels": "vendor,critical,defect",
+        },
+    ]
+    return pd.DataFrame(rows, columns=JIRA_TEMPLATE_COLUMNS)
+
+
+def build_jira_template_csv_bytes() -> bytes:
+    buffer = io.StringIO()
+    build_jira_template_dataframe().to_csv(buffer, index=False)
+    return buffer.getvalue().encode("utf-8")
+
+
+def build_blank_jira_template_csv_bytes() -> bytes:
+    buffer = io.StringIO()
+    pd.DataFrame(columns=JIRA_TEMPLATE_COLUMNS).to_csv(buffer, index=False)
+    return buffer.getvalue().encode("utf-8")
+
+
 def get_options(series: pd.Series) -> List[str]:
     values = series.fillna("Unknown").astype(str).str.strip().replace({"": "Unknown"})
     return ["All"] + sorted(values.unique().tolist())
@@ -943,7 +1085,7 @@ def generate_client_engagement_ppt(df: pd.DataFrame) -> bytes:
     prs.slide_width = Inches(13.333)
     prs.slide_height = Inches(7.5)
 
-    generated_on = datetime.now().strftime("%d %b %Y, %I:%M %p")
+    generated_on = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %I:%M %p IST")
     deck_name = "CLIENT ENGAGEMENT PACK | DELIVERY GOVERNANCE"
 
     # -------------------------
@@ -1373,28 +1515,246 @@ def generate_client_engagement_ppt(df: pd.DataFrame) -> bytes:
 # ============================================================
 # AI ASSISTANT
 # ============================================================
+def _fmt_num(value: Any, decimals: int = 1) -> str:
+    try:
+        f = float(value)
+        if abs(f - int(f)) < 0.00001:
+            return f"{int(f)}"
+        return f"{f:.{decimals}f}"
+    except Exception:
+        return str(value)
+
+
+def _ticket_list(df: pd.DataFrame, max_rows: int = 8) -> str:
+    if df is None or df.empty:
+        return "No matching Jira items found in the current filtered view."
+    cols = [c for c in ["ticket_key", "sprint", "status", "priority", "assignee", "story_points", "days_open", "dependency_text"] if c in df.columns]
+    rows = []
+    for _, r in df[cols].head(max_rows).iterrows():
+        key = r.get("ticket_key", "")
+        sprint = r.get("sprint", "")
+        status = r.get("status", "")
+        priority = r.get("priority", "")
+        owner = r.get("assignee", "")
+        sp = _fmt_num(r.get("story_points", 0), 0)
+        days = _fmt_num(r.get("days_open", 0), 0)
+        dep = str(r.get("dependency_text", "")).strip()
+        dep_text = f" | Dependency: {dep}" if dep else ""
+        rows.append(f"- **{key}** | {sprint} | {status} | {priority} | Owner: {owner} | SP: {sp} | Days open: {days}{dep_text}")
+    return "\n".join(rows)
+
+
+def _governance_recommendations(agg: Dict[str, Any]) -> List[str]:
+    recommendations = []
+    if agg["rag_status"] == "Red":
+        recommendations.append("Run a focused recovery checkpoint with client and delivery owners until the RAG moves out of Red.")
+    elif agg["rag_status"] == "Amber":
+        recommendations.append("Track the sprint through a weekly governance checkpoint and close key risks before the next review.")
+    else:
+        recommendations.append("Maintain current governance rhythm and continue monitoring leading indicators.")
+    if agg["blocked_count"] > 0:
+        recommendations.append(f"Prioritize the {agg['blocked_count']} blocked item(s); each should have owner, ETA, dependency owner and mitigation.")
+    if agg["aging_tickets"] > 0:
+        recommendations.append(f"Review {agg['aging_tickets']} aging item(s) above 10 days and agree closure or de-scope action.")
+    if agg["dependency_count"] > 0:
+        recommendations.append(f"Review {agg['dependency_count']} dependency-risk item(s) and confirm cross-team/client decision points.")
+    if agg["defect_rate"] > 10:
+        recommendations.append(f"Defect rate is {_fmt_num(agg['defect_rate'])}%; plan defect triage and root-cause review.")
+    if agg["spillover_pct"] > 30:
+        recommendations.append(f"Spillover is {_fmt_num(agg['spillover_pct'])}%; review commitment quality, scope change and capacity assumptions.")
+    return recommendations[:6]
+
+
 def answer_ai_question(question: str, metrics: Dict[str, Any]) -> str:
+    """Rule-based governance assistant grounded only in the uploaded Jira data.
+
+    It answers both data questions and governance/agile/sprint questions without
+    calling external services, so it works in Streamlit Cloud without API keys.
+    """
     q = question.lower().strip()
+    df = metrics["df"].copy()
     agg = metrics["agg_metrics"]
-    sprint_summary = metrics["sprint_summary"]
-    resource_workload = metrics["resource_workload"]
-    if "velocity" in q:
-        return f"Average velocity is {agg['average_velocity']:.1f} story points. Current completion is {agg['planned_vs_completed_pct']:.1f}%."
-    if "predictability" in q:
-        return f"Average predictability is {agg['average_predictability']:.1f}%. Spillover is {agg['spillover_pct']:.1f}%."
-    if "blocked" in q or "blocker" in q:
-        return f"There are {agg['blocked_count']} blocked tickets in the current view. These should be reviewed first in the client governance discussion."
-    if "defect" in q or "quality" in q:
-        return f"Defect rate is {agg['defect_rate']:.1f}% based on {agg['defect_count']} defects from {agg['total_tickets']} Jira items."
-    if "resource" in q or "workload" in q:
+    sprint_summary = metrics["sprint_summary"].copy()
+    resource_workload = metrics["resource_workload"].copy()
+    defect_trend = metrics["defect_trend"].copy()
+
+    if df.empty:
+        return "No Jira data is available for the current filter context. Clear filters or upload a valid Jira CSV."
+
+    done_count = int(df["is_done"].sum()) if "is_done" in df else 0
+    open_count = int(len(df) - done_count)
+    blocked_df = df[df["blocked"]].sort_values(["priority", "days_open"], ascending=[True, False])
+    aging_df = df[df["days_open"] > 10].sort_values("days_open", ascending=False)
+    dependency_df = df[(df["has_dependency"]) | (df["blocked"])].sort_values(["blocked", "days_open"], ascending=[False, False])
+    high_priority_df = df[df["priority"].str.lower().isin(["critical", "high"])].sort_values(["blocked", "days_open"], ascending=[False, False])
+    defect_df = df[df["is_defect"]].sort_values(["blocked", "days_open"], ascending=[False, False])
+    high_risk_df = df[df["is_high_risk"]].sort_values(["blocked", "days_open"], ascending=[False, False])
+
+    # Greetings / help
+    if q in ["help", "what can you do", "questions", "sample questions"] or "what can i ask" in q:
+        return (
+            "You can ask me questions grounded in the uploaded Jira data and delivery governance context. Examples:\n\n"
+            "- Give me an executive summary.\n"
+            "- What are the top blockers?\n"
+            "- Which tickets are aging?\n"
+            "- What are the dependency risks?\n"
+            "- Which sprint has highest spillover?\n"
+            "- Which resources are overloaded?\n"
+            "- What should I discuss with the client?\n"
+            "- Generate RAID actions for this sprint.\n"
+            "- Explain sprint predictability / velocity / spillover."
+        )
+
+    # Executive / client summary
+    if any(term in q for term in ["summary", "executive", "overall", "status report", "client update", "governance summary", "health"]):
+        recs = "\n".join(f"- {r}" for r in _governance_recommendations(agg))
+        return (
+            f"**Executive Delivery Summary**\n\n"
+            f"- Current scope: **{agg['total_tickets']} Jira item(s)** across **{agg['total_sprints']} sprint(s)**.\n"
+            f"- Completion: **{done_count}/{agg['total_tickets']} tickets closed** and **{_fmt_num(agg['planned_vs_completed_pct'])}% story-point completion**.\n"
+            f"- Delivery health: **{agg['health_score']}/100 ({agg['rag_status']})**.\n"
+            f"- Risks: **{agg['blocked_count']} blocked**, **{agg['aging_tickets']} aging**, **{agg['dependency_count']} dependency-risk**, **{agg['defect_count']} defect(s)**.\n"
+            f"- Spillover: **{_fmt_num(agg['total_spillover_story_points'], 0)} SP** remaining, **{_fmt_num(agg['spillover_pct'])}%** of planned scope.\n\n"
+            f"**Recommended Governance Actions**\n{recs}"
+        )
+
+    # Blockers
+    if any(term in q for term in ["blocked", "blocker", "blocking", "impediment", "stuck"]):
+        return (
+            f"**Blocker Analysis**\n\n"
+            f"There are **{agg['blocked_count']} blocked item(s)** in the current filtered view. "
+            f"Blocked items impact **{_fmt_num(blocked_df['story_points'].sum(), 0)} story point(s)**.\n\n"
+            f"**Top Blocked Items**\n{_ticket_list(blocked_df, 10)}\n\n"
+            f"**Client Governance Ask**\n- Confirm owner and ETA for each blocker.\n- Identify whether each blocker is internal, client-side, vendor-side or cross-team.\n- Agree escalation path for blockers impacting critical path."
+        )
+
+    # Aging
+    if any(term in q for term in ["aging", "ageing", "old", "days open", "stale", "overdue"]):
+        return (
+            f"**Aging Ticket Analysis**\n\n"
+            f"There are **{agg['aging_tickets']} item(s)** open for more than 10 days. "
+            f"The oldest item is **{int(aging_df['days_open'].max()) if not aging_df.empty else 0} days** open.\n\n"
+            f"**Top Aging Items**\n{_ticket_list(aging_df, 10)}\n\n"
+            f"**Governance Recommendation**\n- Review aging tickets in triage.\n- Confirm whether each item should be closed, split, de-scoped, or escalated."
+        )
+
+    # Dependencies
+    if any(term in q for term in ["dependency", "dependencies", "bottleneck", "external", "vendor", "cross team", "cross-team"]):
+        owners = dependency_df["assignee"].nunique() if not dependency_df.empty else 0
+        return (
+            f"**Dependency Analysis**\n\n"
+            f"The current view has **{agg['dependency_count']} dependency-risk item(s)** across **{owners} owner(s)**. "
+            f"Dependency-risk items impact **{_fmt_num(dependency_df['story_points'].sum(), 0)} story point(s)**.\n\n"
+            f"**Key Dependency Items**\n{_ticket_list(dependency_df, 10)}\n\n"
+            f"**Client Decision Points**\n- Confirm dependency owner.\n- Confirm ETA and mitigation.\n- Escalate vendor/client-side dependencies that block sprint objectives."
+        )
+
+    # Sprint trend / velocity / predictability / spillover
+    if any(term in q for term in ["sprint", "velocity", "predictability", "spillover", "planned", "completed", "commitment"]):
+        if sprint_summary.empty:
+            return "No sprint summary is available for the current view."
+        best_velocity = sprint_summary.sort_values("velocity", ascending=False).head(1).iloc[0]
+        worst_predictability = sprint_summary.sort_values("predictability", ascending=True).head(1).iloc[0]
+        highest_spillover = sprint_summary.sort_values("spillover_story_points", ascending=False).head(1).iloc[0]
+        lines = []
+        for _, r in sprint_summary.head(10).iterrows():
+            lines.append(
+                f"- **{r['sprint']}**: Planned {_fmt_num(r['planned_story_points'],0)} SP, "
+                f"Completed {_fmt_num(r['completed_story_points'],0)} SP, "
+                f"Predictability {_fmt_num(r['predictability'])}%, Spillover {_fmt_num(r['spillover_story_points'],0)} SP"
+            )
+        return (
+            f"**Sprint Performance Analysis**\n\n"
+            f"- Average velocity: **{_fmt_num(agg['average_velocity'])} SP**.\n"
+            f"- Average predictability: **{_fmt_num(agg['average_predictability'])}%**.\n"
+            f"- Highest velocity sprint: **{best_velocity['sprint']}** with **{_fmt_num(best_velocity['velocity'],0)} SP**.\n"
+            f"- Lowest predictability sprint: **{worst_predictability['sprint']}** at **{_fmt_num(worst_predictability['predictability'])}%**.\n"
+            f"- Highest spillover sprint: **{highest_spillover['sprint']}** with **{_fmt_num(highest_spillover['spillover_story_points'],0)} SP**.\n\n"
+            f"**Sprint Facts**\n" + "\n".join(lines)
+        )
+
+    # Resource/capacity
+    if any(term in q for term in ["resource", "assignee", "owner", "capacity", "overload", "overloaded", "workload", "utilization", "utilisation"]):
         if resource_workload.empty:
             return "No resource workload data is available in the current view."
-        top = resource_workload.iloc[0]
-        return f"Highest workload is with {top['assignee']} at {int(top['workload_story_points'])} story points."
-    if "summary" in q:
-        return f"Current view has {agg['total_tickets']} tickets, {int(agg['total_planned_story_points'])} planned SP, {int(agg['total_completed_story_points'])} completed SP, {agg['blocked_count']} blockers, {agg['defect_count']} defects, and health score {agg['health_score']} ({agg['rag_status']})."
-    return "Ask about velocity, predictability, blockers, defects, resource workload, or summary."
+        avg = resource_workload["workload_story_points"].mean()
+        overloaded = resource_workload[resource_workload["workload_story_points"] >= 1.5 * avg]
+        top_rows = []
+        for _, r in resource_workload.head(10).iterrows():
+            top_rows.append(
+                f"- **{r['assignee']}**: {_fmt_num(r['workload_story_points'],0)} SP, "
+                f"{int(r['ticket_count'])} ticket(s), {int(r['open_tickets'])} open, {int(r['blocked_tickets'])} blocked"
+            )
+        overload_text = "No assignee is above 150% of average workload." if overloaded.empty else ", ".join(overloaded["assignee"].astype(str).tolist())
+        return (
+            f"**Resource Workload Analysis**\n\n"
+            f"- Active resources: **{agg['resources_count']}**.\n"
+            f"- Average workload: **{_fmt_num(avg)} SP per resource**.\n"
+            f"- Overload check: **{overload_text}**\n\n"
+            f"**Workload by Assignee**\n" + "\n".join(top_rows) +
+            "\n\n**Governance Recommendation**\n- Rebalance blockers and high-priority work from overloaded owners.\n- Confirm capacity before accepting additional scope."
+        )
 
+    # Quality / defects
+    if any(term in q for term in ["defect", "bug", "quality", "qa", "testing", "test"]):
+        return (
+            f"**Quality & Defect Analysis**\n\n"
+            f"- Defects: **{agg['defect_count']}**.\n"
+            f"- Defect rate: **{_fmt_num(agg['defect_rate'])}%** of total Jira items.\n"
+            f"- Quality status: **{'Needs Attention' if agg['defect_rate'] > 10 else 'Within Target'}**.\n\n"
+            f"**Top Defect Items**\n{_ticket_list(defect_df, 10)}\n\n"
+            f"**Quality Governance Ask**\n- Prioritize critical/high defects.\n- Confirm defect owner and target fix sprint.\n- Run root-cause review if defect rate stays above 10%."
+        )
+
+    # RAID / actions / next steps
+    if any(term in q for term in ["raid", "action", "actions", "next step", "next steps", "decision", "decisions", "mitigation", "recommend", "recommendation", "client pack", "client meeting"]):
+        raid_items = []
+        for _, r in blocked_df.head(5).iterrows():
+            severity = "Critical" if str(r.get("priority", "")).lower() == "critical" or int(r.get("days_open", 0)) > 10 else "High"
+            raid_items.append(f"- **Issue | {r['ticket_key']} | {severity}**: Blocked {r.get('priority')} item. Action: Confirm owner, ETA and escalation path.")
+        for _, r in dependency_df.head(3).iterrows():
+            dep = str(r.get("dependency_text", "")).strip() or r.get("ticket_key", "")
+            raid_items.append(f"- **Dependency | {dep} | High**: Linked dependency in current sprint. Action: Agree dependency owner and due date.")
+        if not raid_items:
+            raid_items.append("- No major RAID items found in the current filter context.")
+        recs = "\n".join(f"- {r}" for r in _governance_recommendations(agg))
+        return (
+            f"**RAID / Action Tracker Draft**\n\n" + "\n".join(raid_items[:8]) +
+            f"\n\n**Recommended Next Steps**\n{recs}"
+        )
+
+    # Priority / risks
+    if any(term in q for term in ["risk", "risks", "critical", "high priority", "priority", "red", "amber", "rag"]):
+        return (
+            f"**Risk Analysis**\n\n"
+            f"- RAG status: **{agg['rag_status']}** with health score **{agg['health_score']}/100**.\n"
+            f"- High-risk items: **{agg['high_risk_count']}**.\n"
+            f"- Critical/High priority items: **{len(high_priority_df)}**.\n"
+            f"- Blocked: **{agg['blocked_count']}**, Aging: **{agg['aging_tickets']}**, Dependencies: **{agg['dependency_count']}**.\n\n"
+            f"**Top Risk Items**\n{_ticket_list(high_risk_df, 10)}\n\n"
+            f"**Governance Recommendation**\n- Discuss top risks in the client meeting and capture owner/date/action in the RAID tracker."
+        )
+
+    # Data exploration fallback by keyword: try match ticket/sprint/status/assignee/priority/type
+    tokens = [t.strip().lower() for t in q.replace(",", " ").split() if len(t.strip()) >= 3]
+    mask = pd.Series(False, index=df.index)
+    searchable_cols = ["ticket_key", "sprint", "status", "priority", "assignee", "issue_type", "dependency_text", "risk_category"]
+    for col in searchable_cols:
+        if col in df.columns:
+            text_col = df[col].fillna("").astype(str).str.lower()
+            for token in tokens:
+                mask = mask | text_col.str.contains(token, na=False, regex=False)
+    matched = df[mask]
+    if not matched.empty:
+        return (
+            f"I found **{len(matched)} matching Jira item(s)** for your question in the current filtered view.\n\n"
+            f"{_ticket_list(matched.sort_values(['blocked', 'days_open'], ascending=[False, False]), 10)}"
+        )
+
+    return (
+        "I could not map the question to a specific Jira/governance insight. Try asking about: "
+        "executive summary, blockers, aging tickets, dependency risks, sprint velocity, predictability, spillover, resource workload, defects, RAID actions, or client next steps."
+    )
 # ============================================================
 # MAIN APP
 # ============================================================
@@ -1402,9 +1762,9 @@ def main():
     apply_app_style()
     init_filter_state()
 
-    now = datetime.now()
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
     greeting = "Good Morning" if now.hour < 12 else "Good Afternoon" if now.hour < 18 else "Good Evening"
-    current_datetime = now.strftime("%A, %B %d %Y · %I:%M %p")
+    current_datetime = now.strftime("%A, %B %d %Y · %I:%M %p IST")
 
     st.markdown(
         f"""
@@ -1413,12 +1773,11 @@ def main():
             <div>
               <div class='hero-badge'>AI Agent - Delivery Manager</div>
               <h1>{greeting}, Delivery Manager</h1>
-              <p>Client-ready delivery governance dashboard for sprint health, risks, dependencies, resource workload and KPI reporting.</p>
+              <p>Executive Delivery Governance Dashboard For Sprint Health, Risks, Dependencies, Resource Workload And KPI Reporting.</p>
             </div>
             <div class='hero-meta'>
               <strong>{current_datetime}</strong><br/>
-              Executive delivery view updated in real time.<br/>
-              Use sidebar filters to control the dashboard view. Clear All Filters resets the selection.
+              Executive Delivery View Updated In Real Time.
             </div>
           </div>
         </div>
@@ -1427,11 +1786,46 @@ def main():
     )
 
     st.markdown("<div class='upload-panel'>", unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("Upload Jira CSV", type=["csv"], help="Upload Jira export CSV. The dashboard and PPT will use the uploaded data.")
+    st.markdown("### Upload Jira CSV or Download Template")
+    st.caption("Use your Jira export CSV. If the file is not ready, download the template below and populate it with sprint delivery data.")
+
+    template_col, upload_col = st.columns([1, 2], gap="large")
+    with template_col:
+        st.download_button(
+            label="Download Jira CSV Template",
+            data=build_jira_template_csv_bytes(),
+            file_name="jira_delivery_governance_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+            help="Downloads a Jira CSV template with sample rows and all required columns for the dashboard.",
+        )
+        st.download_button(
+            label="Download Blank Template",
+            data=build_blank_jira_template_csv_bytes(),
+            file_name="jira_delivery_governance_blank_template.csv",
+            mime="text/csv",
+            use_container_width=True,
+            help="Downloads only the column headers if you want to start from a blank file.",
+        )
+        with st.expander("Template column guide"):
+            st.markdown(
+                """
+                **Recommended columns:** Key, Sprint, Type, Status, Assignee, Priority, Story Points, Days Open, Dependency, Created, Updated, Resolved, Blocked, Labels.
+
+                **Accepted values:** Status can be Done, In Progress, Open, Blocked. Type can be Story, Bug, Task. Blocked can be Yes/No.
+                """
+            )
+    with upload_col:
+        uploaded_file = st.file_uploader(
+            "Upload Jira CSV",
+            type=["csv"],
+            help="Upload Jira export CSV. The dashboard and PPT will use the uploaded data.",
+        )
+        if uploaded_file is None:
+            st.info("Upload a Jira CSV file to view the Delivery Manager AI Agent dashboard.")
     st.markdown("</div>", unsafe_allow_html=True)
 
     if uploaded_file is None:
-        st.info("Upload a Jira CSV file to view the Delivery Manager AI Agent dashboard.")
         return
 
     raw_df = load_data(uploaded_file)
@@ -1530,10 +1924,46 @@ def main():
 
     # AI Assistant and PPT
     st.markdown("<div class='section-title'>🤖 AI Assistant & Client Pack</div>", unsafe_allow_html=True)
-    q = st.text_input("Ask about the current filtered view", placeholder="Example: Give me a summary of blockers and risks")
-    if q:
-        st.info(answer_ai_question(q, metrics))
+    st.caption(
+        "Ask questions about the uploaded Jira data, sprint health, blockers, dependencies, resource workload, quality, RAID actions, or governance recommendations."
+    )
 
+    suggested_questions = [
+        "Give me an executive summary",
+        "What are the top blockers?",
+        "Which tickets are aging?",
+        "What are the dependency risks?",
+        "Which sprint has highest spillover?",
+        "Which resources are overloaded?",
+        "Generate RAID actions for the client meeting",
+        "What should I discuss with the client?",
+    ]
+
+    if "ai_question" not in st.session_state:
+        st.session_state["ai_question"] = ""
+
+    sq1, sq2, sq3, sq4 = st.columns(4)
+    for col, label in zip([sq1, sq2, sq3, sq4], suggested_questions[:4]):
+        with col:
+            if st.button(label, use_container_width=True):
+                st.session_state["ai_question"] = label
+    sq5, sq6, sq7, sq8 = st.columns(4)
+    for col, label in zip([sq5, sq6, sq7, sq8], suggested_questions[4:]):
+        with col:
+            if st.button(label, use_container_width=True):
+                st.session_state["ai_question"] = label
+
+    q = st.text_input(
+        "Ask the AI Assistant",
+        key="ai_question",
+        placeholder="Example: Prepare client talking points for blockers, dependencies and sprint recovery",
+    )
+    if q:
+        st.markdown(answer_ai_question(q, metrics))
+
+    st.markdown("---")
+    st.subheader("Client Pack Export")
+    st.caption("The PPT uses the same filtered Jira view currently shown in the dashboard.")
     pptx_bytes = generate_client_engagement_ppt(model_df)
     st.download_button(
         "📊 Download Client Engagement KPI PPT",
